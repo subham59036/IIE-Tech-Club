@@ -21,7 +21,7 @@ interface ClubEvent {
 }
 
 // ► CHANGE: Replace with your actual Vercel deployment domain
-const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_URL ?? "https://techos.vercel.app";
+const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_URL ?? "https://iie-tech-club.onrender.app";
 
 export default function EventsTab({ onForceLogout }: { onForceLogout: () => void }) {
   const [event,       setEvent]       = useState<ClubEvent | null>(null);
