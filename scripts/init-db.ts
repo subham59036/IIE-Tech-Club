@@ -23,10 +23,10 @@ if (existsSync(envPath)) {
   }
 }
 
-import { createClient } from "@libsql/client";
-import { SCHEMA }        from "../src/lib/db";
 
 async function init() {
+  const { SCHEMA } = await import("../src/lib/db");
+  const { createClient } = await import("@libsql/client");
   const db = createClient({
     url:       process.env.TURSO_DATABASE_URL!,
     authToken: process.env.TURSO_AUTH_TOKEN!,
@@ -38,7 +38,8 @@ async function init() {
   // Split on semicolons, filter empty, execute each statement
   const statements = SCHEMA.split(";")
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((s) => !/^PRAGMA\b/i.test(s));
 
   for (const sql of statements) {
     await db.execute(sql + ";");
