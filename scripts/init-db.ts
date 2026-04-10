@@ -13,7 +13,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve }                  from "node:path";
 
 // Load .env.local manually for script context
-const envPath = resolve(process.cwd(), ".env.local");
+const envPath = resolve(process.cwd(), ".env.production");
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, "utf8").split("\n")) {
     const [k, ...v] = line.split("=");
