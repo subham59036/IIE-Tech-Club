@@ -36,7 +36,7 @@ export async function GET() {
 
   if (!result.rows.length) return NextResponse.json({ ok: true, data: null });
 
-  const row = result.rows[0] as {
+  const row = result.rows[0] as unknown as {
     id: number; title: string; description: string; event_date: string;
     last_reg_date: string; status: string; form_token: string;
     created_at: number; posted_by_name: string; registration_count: number;
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     "SELECT id, last_reg_date FROM events ORDER BY created_at DESC LIMIT 1"
   );
   if (existing.rows.length) {
-    const ev = existing.rows[0] as { last_reg_date: string };
+    const ev = existing.rows[0] as unknown as { last_reg_date: string };
     if (todayUtc() <= ev.last_reg_date) {
       return NextResponse.json({ ok: false, error: "An active event already exists. Delete or wait until it expires before creating a new one." }, { status: 409 });
     }
@@ -103,6 +103,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok:   true,
-    data: { id: (r.rows[0] as { id: number }).id, form_token: token },
+    data: { id: (r.rows[0] as unknown as { id: number }).id, form_token: token },
   }, { status: 201 });
 }

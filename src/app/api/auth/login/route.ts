@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Invalid credentials." }, { status: 401 });
     }
 
-    const user = result.rows[0] as {
+    const user = result.rows[0] as unknown as {
       id: number;
       name: string;
       user_id: string;

@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     args: [`${month}-%`],
   });
   // COUNT always returns one row; use optional chaining + nullish coalescing for safety
-  const total_club_days = (clubDaysResult.rows[0] as { total: number } | undefined)?.total ?? 0;
+  const total_club_days = (clubDaysResult.rows[0] as unknown as { total: number } | undefined)?.total ?? 0;
 
   // Per-student summary
   const result = await db.execute({
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
   });
 
   const data: AttendanceSummary[] = result.rows.map((r) => {
-    const row = r as {
+    const row = r as unknown as {
       student_db_id: number; student_name: string; student_id: string;
       present_days: number; absent_days: number;
     };

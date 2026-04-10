@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (!evResult.rows.length) {
       return NextResponse.json({ ok: false, error: "Event not found." }, { status: 404 });
     }
-    const ev = evResult.rows[0] as { id: number; status: string; last_reg_date: string };
+    const ev = evResult.rows[0] as unknown as { id: number; status: string; last_reg_date: string };
 
     if (ev.status !== "live") {
       return NextResponse.json({ ok: false, error: "Registrations are paused for this event." }, { status: 403 });
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     if (!captchaRow.rows.length) {
       return NextResponse.json({ ok: false, error: "Invalid or expired captcha. Refresh and try again." }, { status: 400 });
     }
-    const captcha = captchaRow.rows[0] as { answer: string; created_at: number };
+    const captcha = captchaRow.rows[0] as unknown as { answer: string; created_at: number };
 
     // Token expires after 10 minutes (not 1 hour – tighter window for forms)
     if (Date.now() - captcha.created_at > 10 * 60 * 1000) {

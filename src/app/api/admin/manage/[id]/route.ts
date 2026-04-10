@@ -92,7 +92,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (existing.rows.length === 0) {
     return NextResponse.json({ ok: false, error: "Admin not found." }, { status: 404 });
   }
-  const target = existing.rows[0] as { name: string; admin_id: string };
+  const target = existing.rows[0] as unknown as { name: string; admin_id: string };
 
   await db.execute({ sql: "DELETE FROM admins WHERE id = ?", args: [targetId] });
 

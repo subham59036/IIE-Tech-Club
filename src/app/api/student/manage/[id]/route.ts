@@ -32,7 +32,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (existing.rows.length === 0) {
     return NextResponse.json({ ok: false, error: "Student not found." }, { status: 404 });
   }
-  const old = existing.rows[0] as { name: string; student_id: string };
+  const old = existing.rows[0] as unknown as { name: string; student_id: string };
 
   if (studentId && studentId !== old.student_id) {
     if (!isValidStudentId(studentId)) {
@@ -79,7 +79,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (existing.rows.length === 0) {
     return NextResponse.json({ ok: false, error: "Student not found." }, { status: 404 });
   }
-  const target = existing.rows[0] as { name: string; student_id: string };
+  const target = existing.rows[0] as unknown as { name: string; student_id: string };
 
   // Store notification for student BEFORE deleting (cascade will delete student_notifications)
   // We send an admin notification instead, since the student record will be gone

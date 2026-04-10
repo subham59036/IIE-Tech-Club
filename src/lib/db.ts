@@ -158,7 +158,7 @@ export async function checkRateLimit(key: string, maxRequests = 3): Promise<bool
     return true;
   }
 
-  const { count, window_start } = row.rows[0] as { count: number | bigint; window_start: number | bigint };
+  const { count, window_start } = row.rows[0] as unknown as { count: number | bigint; window_start: number | bigint };
   const countN       = Number(count);
   const windowStartN = Number(window_start);
 

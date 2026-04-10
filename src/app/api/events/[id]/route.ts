@@ -18,7 +18,7 @@ async function guardAdmin() {
 
 async function fetchEvent(id: number) {
   const r = await db.execute({ sql: "SELECT * FROM events WHERE id=?", args: [id] });
-  return r.rows[0] as {
+  return r.rows[0] as unknown as {
     id: number; title: string; last_reg_date: string; status: string;
   } | undefined;
 }

@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     sql:  "INSERT INTO students (name, student_id) VALUES (?,?) RETURNING id",
     args: [sanitize(name), studentId],
   });
-  const newId = (r.rows[0] as { id: number }).id;
+  const newId = (r.rows[0] as unknown as { id: number }).id;
 
   // Notify all admins
   await notifyAdmins(

@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     args: [sanitize(name), adminId],
   });
 
-  const newId = (r.rows[0] as { id: number }).id;
+  const newId = (r.rows[0] as unknown as { id: number }).id;
 
   // Broadcast notification to all admins
   await notifyAdmins(

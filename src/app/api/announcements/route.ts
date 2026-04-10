@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     `New announcement "${sanitize(title)}" posted by ${session.name} (${session.userId}) at ${formatTs(Date.now())}.`
   );
 
-  return NextResponse.json({ ok: true, data: { id: (r.rows[0] as { id: number }).id } }, { status: 201 });
+  return NextResponse.json({ ok: true, data: { id: (r.rows[0] as unknown as { id: number }).id } }, { status: 201 });
 }
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ export async function DELETE(req: NextRequest) {
 
   const existing = await db.execute({ sql: "SELECT title FROM announcements WHERE id=?", args: [id] });
   if (!existing.rows.length) return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
-  const { title } = existing.rows[0] as { title: string };
+  const { title } = existing.rows[0] as unknown as { title: string };
 
   await db.execute({ sql: "DELETE FROM announcements WHERE id=?", args: [id] });
 
