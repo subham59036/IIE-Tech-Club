@@ -45,14 +45,18 @@ async function init() {
     await db.execute(sql + ";");
   }
 
-  console.log("✅  Database initialised successfully.");
+  await db.execute(
+    "INSERT OR IGNORE INTO admins (name, admin_id) VALUES ('Default Admin', 'A001');"
+  );
+  console.log("🌱  Default admin seeded: ID = A001  (no password yet).");
+
   console.log("");
-  console.log("📝  Next step: create your first admin account.");
-  console.log("    You can do this from the login page – use ID A001 and any");
-  console.log("    password (it will be set as the permanent password on first login).");
+  console.log("📝  Next step: log in with ID A001.");
+  console.log("    The admin row has been seeded with no password_hash.");
+  console.log("    Whatever password you enter on first login becomes the permanent password.");
   console.log("");
-  console.log("    Or insert one directly:");
-  console.log("    INSERT INTO admins (name, admin_id) VALUES ('Your Name', 'A001');");
+  console.log("    To add more admins later, use the admin dashboard or insert directly:");
+  console.log("    INSERT OR IGNORE INTO admins (name, admin_id) VALUES ('Name', 'A002');");
 
   db.close();
 }
