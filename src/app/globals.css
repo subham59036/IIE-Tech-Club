@@ -119,6 +119,8 @@ input::placeholder, textarea::placeholder { color: var(--color-muted); }
   display: flex; align-items: center; justify-content: center;
   z-index: 9999;
   animation: fadeIn 0.15s ease both;
+  align-self: center;
+  justify-self: center;
 }
 .popup-box {
   background: var(--color-card);
