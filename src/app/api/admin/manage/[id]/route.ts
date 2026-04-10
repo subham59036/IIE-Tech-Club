@@ -36,7 +36,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (existing.rows.length === 0) {
     return NextResponse.json({ ok: false, error: "Admin not found." }, { status: 404 });
   }
-  const old = existing.rows[0] as { name: string; admin_id: string };
+  const old = existing.rows[0] as unknown as { name: string; admin_id: string };
 
   // Validate new ID uniqueness
   if (adminId && adminId !== old.admin_id) {
