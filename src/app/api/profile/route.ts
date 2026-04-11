@@ -4,19 +4,20 @@
  *
  * Works for both admins (A-prefix IDs) and students (S-prefix IDs).
  * ID change is rejected when the new ID conflicts with an existing record.
- * After a successful update the JWT is re-issued with a 7-day maxAge so
- * profile edits never silently expire a "Remember Me" session.
+ *
+ * Cookie re-issue: reads the rememberMe flag embedded in the current JWT
+ * and preserves it — so a non-persistent login stays non-persistent after
+ * a profile update, and a 7-day login stays 7-day.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import bcrypt                         from "bcryptjs";
-import { cookies }                    from "next/headers";
-import { getSession, createToken }    from "@/lib/auth";
-import { db, adminExists }            from "@/lib/db";
+import { NextRequest, NextResponse }             from "next/server";
+import bcrypt                                     from "bcryptjs";
+import { getSession, createToken, getRememberMe, COOKIE_NAME } from "@/lib/auth";
+import { cookies }                               from "next/headers";
+import { db, adminExists }                       from "@/lib/db";
 import { isValidAdminId, isValidStudentId, sanitize } from "@/lib/utils";
 
-const COOKIE_NAME = "techos_session";
-const SEVEN_DAYS  = 7 * 24 * 60 * 60; // seconds
+const SEVEN_DAYS = 7 * 24 * 60 * 60; // seconds
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
 export async function GET() {
@@ -28,7 +29,7 @@ export async function GET() {
     );
   }
 
-  // Admin force-logout guard — student accounts don't need this check here
+  // Admin force-logout guard
   if (session.role === "admin" && !(await adminExists(session.id))) {
     return NextResponse.json(
       { ok: false, error: "Unauthorised.", forceLogout: true },
@@ -106,7 +107,7 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  // ── Build update fields ────────────────────────────────────────────────────
+  // ── Build update ───────────────────────────────────────────────────────────
   const fields: string[]            = [];
   const args:   (string | number)[] = [];
 
@@ -136,16 +137,18 @@ export async function PUT(req: NextRequest) {
   args.push(session.id);
   await db.execute({ sql: `UPDATE ${table} SET ${fields.join(", ")} WHERE id = ?`, args });
 
-  // ── Re-issue JWT with updated payload ─────────────────────────────────────
-  // Always set a 7-day maxAge on re-issue so profile edits don't silently
-  // kill a "Remember Me" session the user had before the update.
+  // ── Re-issue JWT preserving the original rememberMe preference ────────────
+  // Read rememberMe from the existing JWT so a session-only login stays
+  // session-only and a persistent login stays persistent.
+  const rememberMe = await getRememberMe();
+
   const updatedSession = {
     ...session,
     name:   name   ?? session.name,
     userId: userId ?? session.userId,
   };
 
-  const token       = await createToken(updatedSession);
+  const token       = await createToken(updatedSession, rememberMe);
   const cookieStore = await cookies();
 
   cookieStore.set(COOKIE_NAME, token, {
@@ -153,7 +156,8 @@ export async function PUT(req: NextRequest) {
     secure:   process.env.NODE_ENV === "production",
     sameSite: "lax",
     path:     "/",
-    maxAge:   SEVEN_DAYS,
+    // Only set maxAge if this was originally a persistent session
+    ...(rememberMe ? { maxAge: SEVEN_DAYS } : {}),
   });
 
   return NextResponse.json({
