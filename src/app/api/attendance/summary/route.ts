@@ -4,13 +4,18 @@
  * Returns per-student attendance summary for a given month.
  * Club total days = count of distinct dates in that month with any record.
  * Percentage is against club days only (not calendar days).
+ *
+ * The original query LEFT JOIN-ed students + attendance in one DB.
+ * Since they are now in separate Neon projects, we fetch both independently
+ * and compute the aggregation in JavaScript.
+ * The response shape is identical to the original.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getSession }                from "@/lib/auth";
-import { db, adminExists }           from "@/lib/db";
-import type { AttendanceSummary }    from "@/types";
+import { NextRequest, NextResponse }      from "next/server";
+import { getSession }                     from "@/lib/auth";
+import { dbAttendance, dbStudents, adminExists } from "@/lib/db";
+import type { AttendanceSummary }         from "@/types";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -25,46 +30,58 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "month=YYYY-MM required." }, { status: 400 });
   }
 
-  // Total club days in this month = distinct dates that have at least one record
-  const clubDaysResult = await db.execute({
+  // ── 1. Total club days = distinct dates with at least one record ────────────
+  const clubDaysResult = await dbAttendance.execute({
     sql:  "SELECT COUNT(DISTINCT date) AS total FROM attendance WHERE date LIKE ?",
     args: [`${month}-%`],
   });
-  // COUNT always returns one row; use optional chaining + nullish coalescing for safety
-  const total_club_days = (clubDaysResult.rows[0] as unknown as { total: number } | undefined)?.total ?? 0;
+  const total_club_days =
+    (clubDaysResult.rows[0] as unknown as { total: number } | undefined)?.total ?? 0;
 
-  // Per-student summary
-  const result = await db.execute({
-    sql: `
-      SELECT s.id AS student_db_id, s.name AS student_name, s.student_id,
-             SUM(CASE WHEN a.status='present' THEN 1 ELSE 0 END) AS present_days,
-             SUM(CASE WHEN a.status='absent'  THEN 1 ELSE 0 END) AS absent_days
-      FROM   students s
-      LEFT   JOIN attendance a
-             ON a.student_db_id = s.id AND a.date LIKE ?
-      GROUP  BY s.id
-      ORDER  BY present_days DESC, s.student_id
-    `,
+  // ── 2. All students ─────────────────────────────────────────────────────────
+  const studResult = await dbStudents.execute(
+    "SELECT id, name, student_id FROM students ORDER BY student_id"
+  );
+  const students = studResult.rows as unknown as {
+    id: number; name: string; student_id: string;
+  }[];
+
+  // ── 3. All attendance records for this month ────────────────────────────────
+  const attResult = await dbAttendance.execute({
+    sql:  "SELECT student_db_id, status FROM attendance WHERE date LIKE ?",
     args: [`${month}-%`],
   });
+  const attRows = attResult.rows as unknown as {
+    student_db_id: number; status: string;
+  }[];
 
-  const data: AttendanceSummary[] = result.rows.map((r) => {
-    const row = r as unknown as {
-      student_db_id: number; student_name: string; student_id: string;
-      present_days: number; absent_days: number;
-    };
-    return {
-      student_db_id:  row.student_db_id,
-      student_name:   row.student_name,
-      student_id:     row.student_id,
-      present_days:   row.present_days  ?? 0,
-      absent_days:    row.absent_days   ?? 0,
-      total_club_days,
-      percentage:     total_club_days > 0
-        ? Math.round(((row.present_days ?? 0) / total_club_days) * 100)
-        : 0,
-    };
-  });
+  // ── 4. Aggregate in JS (replicates the SQL GROUP BY + SUM) ──────────────────
+  const presentMap = new Map<number, number>();
+  const absentMap  = new Map<number, number>();
+  for (const r of attRows) {
+    const sid = r.student_db_id;
+    if (r.status === "present") presentMap.set(sid, (presentMap.get(sid) ?? 0) + 1);
+    else                         absentMap.set(sid,  (absentMap.get(sid)  ?? 0) + 1);
+  }
+
+  const data: AttendanceSummary[] = students
+    .map((s) => {
+      const present_days = presentMap.get(s.id) ?? 0;
+      const absent_days  = absentMap.get(s.id)  ?? 0;
+      return {
+        student_db_id:  s.id,
+        student_name:   s.name,
+        student_id:     s.student_id,
+        present_days,
+        absent_days,
+        total_club_days,
+        percentage: total_club_days > 0
+          ? Math.round((present_days / total_club_days) * 100)
+          : 0,
+      };
+    })
+    // Sort descending by present_days (same ORDER BY as original query)
+    .sort((a, b) => b.present_days - a.present_days || a.student_id.localeCompare(b.student_id));
 
   return NextResponse.json({ ok: true, data, meta: { total_club_days } });
 }

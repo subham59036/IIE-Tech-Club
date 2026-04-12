@@ -2,12 +2,15 @@
  * GET    /api/announcements  – All announcements (newest first), auth required
  * POST   /api/announcements  – Create announcement (admin only)
  * DELETE /api/announcements?id=N – Delete by id (admin only)
+ *
+ * The original query JOINed announcements + admins.
+ * We fetch announcements first, then look up poster names from dbAdmins.
  */
 
-import { NextRequest, NextResponse }       from "next/server";
-import { getSession }                      from "@/lib/auth";
-import { db, adminExists, notifyAdmins }   from "@/lib/db";
-import { sanitize, formatTs }              from "@/lib/utils";
+import { NextRequest, NextResponse }                    from "next/server";
+import { getSession }                                   from "@/lib/auth";
+import { dbAnnouncements, dbAdmins, adminExists, notifyAdmins } from "@/lib/db";
+import { sanitize, formatTs }                           from "@/lib/utils";
 
 async function guardAdmin() {
   const s = await getSession();
@@ -20,15 +23,39 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorised.", forceLogout: true }, { status: 401 });
 
-  const result = await db.execute(`
-    SELECT a.id, a.title, a.description, a.announced_date, a.created_at,
-           adm.name AS posted_by_name
-    FROM   announcements a
-    JOIN   admins adm ON adm.id = a.posted_by_admin
-    ORDER  BY a.created_at DESC
-  `);
+  const result = await dbAnnouncements.execute(
+    "SELECT id, title, description, announced_date, posted_by_admin, created_at FROM announcements ORDER BY created_at DESC"
+  );
 
-  return NextResponse.json({ ok: true, data: result.rows });
+  const rows = result.rows as unknown as {
+    id: number; title: string; description: string;
+    announced_date: string; posted_by_admin: number; created_at: number;
+  }[];
+
+  // Fetch admin names for all unique poster IDs
+  const adminIds = [...new Set(rows.map((r) => r.posted_by_admin))];
+  let admMap = new Map<number, string>();
+  if (adminIds.length > 0) {
+    const placeholders = adminIds.map(() => "?").join(",");
+    const admResult = await dbAdmins.execute({
+      sql:  `SELECT id, name FROM admins WHERE id IN (${placeholders})`,
+      args: adminIds,
+    });
+    admMap = new Map(
+      (admResult.rows as unknown as { id: number; name: string }[]).map((a) => [a.id, a.name])
+    );
+  }
+
+  const data = rows.map((r) => ({
+    id:             r.id,
+    title:          r.title,
+    description:    r.description,
+    announced_date: r.announced_date,
+    posted_by_name: admMap.get(r.posted_by_admin) ?? "Unknown",
+    created_at:     r.created_at,
+  }));
+
+  return NextResponse.json({ ok: true, data });
 }
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
@@ -47,7 +74,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "announcedDate must be YYYY-MM-DD." }, { status: 400 });
   }
 
-  const r = await db.execute({
+  const r = await dbAnnouncements.execute({
     sql:  "INSERT INTO announcements (title, description, announced_date, posted_by_admin) VALUES (?,?,?,?) RETURNING id",
     args: [sanitize(title), sanitize(description), announcedDate, session.id],
   });
@@ -67,11 +94,11 @@ export async function DELETE(req: NextRequest) {
   const id = parseInt(req.nextUrl.searchParams.get("id") ?? "", 10);
   if (!id) return NextResponse.json({ ok: false, error: "id param required." }, { status: 400 });
 
-  const existing = await db.execute({ sql: "SELECT title FROM announcements WHERE id=?", args: [id] });
+  const existing = await dbAnnouncements.execute({ sql: "SELECT title FROM announcements WHERE id=?", args: [id] });
   if (!existing.rows.length) return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
   const { title } = existing.rows[0] as unknown as { title: string };
 
-  await db.execute({ sql: "DELETE FROM announcements WHERE id=?", args: [id] });
+  await dbAnnouncements.execute({ sql: "DELETE FROM announcements WHERE id=?", args: [id] });
 
   await notifyAdmins(
     `Announcement "${title}" deleted by ${session.name} (${session.userId}) at ${formatTs(Date.now())}.`

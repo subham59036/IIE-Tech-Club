@@ -3,10 +3,10 @@
  * DELETE /api/events/[id]  – Delete event (admin only)
  */
 
-import { NextRequest, NextResponse }     from "next/server";
-import { getSession }                    from "@/lib/auth";
-import { db, adminExists, notifyAdmins } from "@/lib/db";
-import { formatTs, todayUtc }            from "@/lib/utils";
+import { NextRequest, NextResponse }              from "next/server";
+import { getSession }                             from "@/lib/auth";
+import { dbEvents, adminExists, notifyAdmins }    from "@/lib/db";
+import { formatTs, todayUtc }                     from "@/lib/utils";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -17,7 +17,7 @@ async function guardAdmin() {
 }
 
 async function fetchEvent(id: number) {
-  const r = await db.execute({ sql: "SELECT * FROM events WHERE id=?", args: [id] });
+  const r = await dbEvents.execute({ sql: "SELECT * FROM events WHERE id=?", args: [id] });
   return r.rows[0] as unknown as {
     id: number; title: string; last_reg_date: string; status: string;
   } | undefined;
@@ -33,7 +33,6 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const ev      = await fetchEvent(eventId);
   if (!ev) return NextResponse.json({ ok: false, error: "Event not found." }, { status: 404 });
 
-  // Disallow edits after expiry (only download is available then)
   const is_expired = todayUtc() > ev.last_reg_date;
   if (is_expired) {
     return NextResponse.json({ ok: false, error: "Event has expired; no edits allowed." }, { status: 400 });
@@ -46,7 +45,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const fields: string[] = [];
   const args: (string | number)[] = [];
 
-  if (status && ["live","paused"].includes(status)) {
+  if (status && ["live", "paused"].includes(status)) {
     fields.push("status=?"); args.push(status);
   }
   if (lastRegDate) {
@@ -59,11 +58,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!fields.length) return NextResponse.json({ ok: false, error: "Nothing to update." }, { status: 400 });
 
   args.push(eventId);
-  await db.execute({ sql: `UPDATE events SET ${fields.join(",")} WHERE id=?`, args });
+  await dbEvents.execute({ sql: `UPDATE events SET ${fields.join(",")} WHERE id=?`, args });
 
   const changeDesc = [
-    status      ? `status → ${status}`           : null,
-    lastRegDate ? `last reg date → ${lastRegDate}`: null,
+    status      ? `status → ${status}`            : null,
+    lastRegDate ? `last reg date → ${lastRegDate}` : null,
   ].filter(Boolean).join(", ");
 
   await notifyAdmins(
@@ -83,7 +82,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const ev      = await fetchEvent(eventId);
   if (!ev) return NextResponse.json({ ok: false, error: "Event not found." }, { status: 404 });
 
-  await db.execute({ sql: "DELETE FROM events WHERE id=?", args: [eventId] });
+  await dbEvents.execute({ sql: "DELETE FROM events WHERE id=?", args: [eventId] });
 
   await notifyAdmins(
     `Event "${ev.title}" was deleted by ${session.name} (${session.userId}) at ${formatTs(Date.now())}.`

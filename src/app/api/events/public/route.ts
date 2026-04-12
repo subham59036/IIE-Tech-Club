@@ -1,21 +1,19 @@
 /**
  * GET /api/events/public?token=XYZ
- * ─────────────────────────────────────────────────────────────────────────────
  * Public — no authentication required.
  * Returns only title, description, status, and last_reg_date of the event.
  * Used by the public registration form page.
- * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db }                        from "@/lib/db";
+import { dbEvents }                  from "@/lib/db";
 import { todayUtc }                  from "@/lib/utils";
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
   if (!token) return NextResponse.json({ ok: false, error: "token required." }, { status: 400 });
 
-  const result = await db.execute({
+  const result = await dbEvents.execute({
     sql:  "SELECT id, title, description, event_date, last_reg_date, status FROM events WHERE form_token=?",
     args: [token],
   });

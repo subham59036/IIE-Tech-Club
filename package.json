@@ -10,29 +10,29 @@
     "db:init": "tsx scripts/init-db.ts"
   },
   "dependencies": {
-    "@libsql/client": "^0.17.2",
-    "bcryptjs": "^3.0.3",
-    "jose": "^6.2.2",
-    "jspdf": "^4.2.1",
-    "jspdf-autotable": "^5.0.7",
-    "next": "^16.2.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "recharts": "^3.8.1",
-    "uuid": "^13.0.0"
+    "@neondatabase/serverless": ">=1.0.2",
+    "bcryptjs": ">=3.0.3",
+    "jose": ">=6.2.2",
+    "jspdf": ">=4.2.1",
+    "jspdf-autotable": ">=5.0.7",
+    "next": ">=16.2.0",
+    "react": ">=19.2.5",
+    "react-dom": ">=19.2.5",
+    "recharts": ">=3.8.1",
+    "uuid": ">=13.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.2",
-    "@types/bcryptjs": "^3.0.0",
-    "@types/node": "^25.5.2",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@types/uuid": "^11.0.0",
-    "eslint": "^10.2.0",
-    "eslint-config-next": "^16.2.2",
-    "tailwindcss": "^4.2.2",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "@tailwindcss/postcss": ">=4.2.2",
+    "@types/bcryptjs": ">=3.0.0",
+    "@types/node": ">=25.5.2",
+    "@types/react": ">=19.2.14",
+    "@types/react-dom": ">=19.2.3",
+    "@types/uuid": ">=11.0.0",
+    "eslint": ">=10.2.0",
+    "eslint-config-next": ">=16.2.2",
+    "tailwindcss": ">=4.2.2",
+    "tsx": ">=4.21.0",
+    "typescript": ">=6.0.2"
   },
   "engines": {
     "node": ">=25.9.0"

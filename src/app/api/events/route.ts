@@ -1,13 +1,16 @@
 /**
  * GET  /api/events  – Fetch the most recent event (both roles)
  * POST /api/events  – Create new event (admin only; rejected if active event exists)
+ *
+ * The original query JOINed events + admins + event_registrations.
+ * We fetch each from its own Neon project and merge in JS.
  */
 
-import { NextRequest, NextResponse }     from "next/server";
-import { v4 as uuid }                    from "uuid";
-import { getSession }                    from "@/lib/auth";
-import { db, adminExists, notifyAdmins } from "@/lib/db";
-import { sanitize, formatTs, todayUtc }  from "@/lib/utils";
+import { NextRequest, NextResponse }                from "next/server";
+import { v4 as uuid }                               from "uuid";
+import { getSession }                               from "@/lib/auth";
+import { dbEvents, dbAdmins, dbEventRegs, adminExists, notifyAdmins } from "@/lib/db";
+import { sanitize, formatTs, todayUtc }             from "@/lib/utils";
 
 async function guardAdmin() {
   const s = await getSession();
@@ -20,32 +23,22 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorised.", forceLogout: true }, { status: 401 });
 
-  // Fetch the single most recent event
-  const result = await db.execute(`
-    SELECT e.id, e.title, e.description, e.event_date, e.last_reg_date,
-           e.status, e.form_token, e.created_at,
-           adm.name AS posted_by_name,
-           COUNT(er.id) AS registration_count
-    FROM   events e
-    JOIN   admins adm ON adm.id = e.posted_by_admin
-    LEFT   JOIN event_registrations er ON er.event_id = e.id
-    GROUP  BY e.id
-    ORDER  BY e.created_at DESC
-    LIMIT  1
-  `);
+  // Fetch most recent event
+  const result = await dbEvents.execute(
+    "SELECT id, title, description, event_date, last_reg_date, status, form_token, posted_by_admin, created_at FROM events ORDER BY created_at DESC LIMIT 1"
+  );
 
   if (!result.rows.length) return NextResponse.json({ ok: true, data: null });
 
   const row = result.rows[0] as unknown as {
     id: number; title: string; description: string; event_date: string;
     last_reg_date: string; status: string; form_token: string;
-    created_at: number; posted_by_name: string; registration_count: number;
+    posted_by_admin: number; created_at: number;
   };
 
-  // Compute is_expired (today > last_reg_date)
   const is_expired = todayUtc() > row.last_reg_date;
 
-  // Students only see limited info
+  // Students see limited info — no DB lookups needed
   if (session.role === "student") {
     return NextResponse.json({
       ok: true,
@@ -60,7 +53,19 @@ export async function GET() {
     });
   }
 
-  return NextResponse.json({ ok: true, data: { ...row, is_expired } });
+  // Fetch poster name and registration count in parallel
+  const [admResult, regResult] = await Promise.all([
+    dbAdmins.execute({ sql: "SELECT name FROM admins WHERE id=?", args: [row.posted_by_admin] }),
+    dbEventRegs.execute({ sql: "SELECT COUNT(*) AS cnt FROM event_registrations WHERE event_id=?", args: [row.id] }),
+  ]);
+
+  const posted_by_name    = (admResult.rows[0] as unknown as { name: string } | undefined)?.name ?? "Unknown";
+  const registration_count = Number((regResult.rows[0] as unknown as { cnt: number | string }).cnt ?? 0);
+
+  return NextResponse.json({
+    ok:   true,
+    data: { ...row, posted_by_name, registration_count, is_expired },
+  });
 }
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
@@ -68,8 +73,8 @@ export async function POST(req: NextRequest) {
   const session = await guardAdmin();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorised.", forceLogout: true }, { status: 401 });
 
-  // Only one event at a time: check if a non-expired event exists
-  const existing = await db.execute(
+  // Only one event at a time
+  const existing = await dbEvents.execute(
     "SELECT id, last_reg_date FROM events ORDER BY created_at DESC LIMIT 1"
   );
   if (existing.rows.length) {
@@ -92,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   const token = uuid().replace(/-/g, "");
 
-  const r = await db.execute({
+  const r = await dbEvents.execute({
     sql:  "INSERT INTO events (title, description, event_date, last_reg_date, form_token, posted_by_admin) VALUES (?,?,?,?,?,?) RETURNING id",
     args: [sanitize(title), sanitize(description), eventDate, lastRegDate, token, session.id],
   });

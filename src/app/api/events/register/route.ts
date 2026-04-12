@@ -1,29 +1,27 @@
 /**
  * POST /api/events/register
- * ─────────────────────────────────────────────────────────────────────────────
  * Public — no auth required (external students can register).
  * Validates: captcha token, rate-limit (3 per IP per hour per event),
  * duplicate roll check, event is live & not expired.
- * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { createHash }                from "crypto";
-import { db, checkRateLimit }        from "@/lib/db";
-import { sanitize, hashIp, getClientIp, todayUtc } from "@/lib/utils";
+import { NextRequest, NextResponse }                     from "next/server";
+import { createHash }                                    from "crypto";
+import { dbEvents, dbCaptcha, dbEventRegs, checkRateLimit } from "@/lib/db";
+import { sanitize, hashIp, getClientIp, todayUtc }      from "@/lib/utils";
 
-const DEPARTMENTS = ["CSE","ECE","EE","ME","AIML","BBA"] as const;
+const DEPARTMENTS = ["CSE", "ECE", "EE", "ME", "AIML", "BBA"] as const;
 
 export async function POST(req: NextRequest) {
   try {
     const {
-      formToken,      // event form_token from URL
+      formToken,
       studentName,
       semester,
       department,
       roll,
-      captchaToken,   // token returned by GET /api/events/captcha
-      captchaAnswer,  // user's answer
+      captchaToken,
+      captchaAnswer,
     } = await req.json() as {
       formToken:     string;
       studentName:   string;
@@ -46,7 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Fetch event by form_token ─────────────────────────────────────────────
-    const evResult = await db.execute({
+    const evResult = await dbEvents.execute({
       sql:  "SELECT id, status, last_reg_date FROM events WHERE form_token=?",
       args: [formToken],
     });
@@ -63,15 +61,15 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Rate-limit by IP + event ──────────────────────────────────────────────
-    const ip     = getClientIp(req);
-    const ipHash = hashIp(ip);
+    const ip      = getClientIp(req);
+    const ipHash  = hashIp(ip);
     const allowed = await checkRateLimit(`reg:${ipHash}:${ev.id}`, 3);
     if (!allowed) {
       return NextResponse.json({ ok: false, error: "Too many requests. Please try again later." }, { status: 429 });
     }
 
     // ── Captcha verification ──────────────────────────────────────────────────
-    const captchaRow = await db.execute({
+    const captchaRow = await dbCaptcha.execute({
       sql:  "SELECT answer, created_at FROM captcha_tokens WHERE token=?",
       args: [captchaToken],
     });
@@ -80,9 +78,8 @@ export async function POST(req: NextRequest) {
     }
     const captcha = captchaRow.rows[0] as unknown as { answer: string; created_at: number };
 
-    // Token expires after 10 minutes (not 1 hour – tighter window for forms)
     if (Date.now() - captcha.created_at > 10 * 60 * 1000) {
-      await db.execute({ sql: "DELETE FROM captcha_tokens WHERE token=?", args: [captchaToken] });
+      await dbCaptcha.execute({ sql: "DELETE FROM captcha_tokens WHERE token=?", args: [captchaToken] });
       return NextResponse.json({ ok: false, error: "Captcha expired. Please refresh." }, { status: 400 });
     }
 
@@ -92,10 +89,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Delete used captcha token (one-time use)
-    await db.execute({ sql: "DELETE FROM captcha_tokens WHERE token=?", args: [captchaToken] });
+    await dbCaptcha.execute({ sql: "DELETE FROM captcha_tokens WHERE token=?", args: [captchaToken] });
 
     // ── Duplicate roll check ──────────────────────────────────────────────────
-    const dupCheck = await db.execute({
+    const dupCheck = await dbEventRegs.execute({
       sql:  "SELECT id FROM event_registrations WHERE event_id=? AND roll=?",
       args: [ev.id, roll.trim().toUpperCase()],
     });
@@ -104,7 +101,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Insert registration ───────────────────────────────────────────────────
-    await db.execute({
+    await dbEventRegs.execute({
       sql:  "INSERT INTO event_registrations (event_id, student_name, semester, department, roll, ip_hash) VALUES (?,?,?,?,?,?)",
       args: [ev.id, sanitize(studentName), Number(semester), department, roll.trim().toUpperCase(), ipHash],
     });
@@ -112,7 +109,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, data: { message: "Registration successful!" } }, { status: 201 });
 
   } catch (err: unknown) {
-    // Unique constraint violation (belt-and-suspenders)
     if (err instanceof Error && err.message.includes("UNIQUE")) {
       return NextResponse.json({ ok: false, error: "This roll number has already been registered." }, { status: 409 });
     }

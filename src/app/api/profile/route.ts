@@ -2,20 +2,17 @@
  * GET /api/profile  – Own profile data (name, ID, joined date)
  * PUT /api/profile  – Update name, ID, and/or password
  *
- * Works for both admins (A-prefix IDs) and students (S-prefix IDs).
- * ID change is rejected when the new ID conflicts with an existing record.
- *
  * Cookie re-issue: reads the rememberMe flag embedded in the current JWT
  * and preserves it — so a non-persistent login stays non-persistent after
  * a profile update, and a 7-day login stays 7-day.
  */
 
-import { NextRequest, NextResponse }             from "next/server";
-import bcrypt                                     from "bcryptjs";
+import { NextRequest, NextResponse }                          from "next/server";
+import bcrypt                                                  from "bcryptjs";
 import { getSession, createToken, getRememberMe, COOKIE_NAME } from "@/lib/auth";
-import { cookies }                               from "next/headers";
-import { db, adminExists }                       from "@/lib/db";
-import { isValidAdminId, isValidStudentId, sanitize } from "@/lib/utils";
+import { cookies }                                            from "next/headers";
+import { dbAdmins, dbStudents, adminExists }                  from "@/lib/db";
+import { isValidAdminId, isValidStudentId, sanitize }         from "@/lib/utils";
 
 const SEVEN_DAYS = 7 * 24 * 60 * 60; // seconds
 
@@ -23,20 +20,14 @@ const SEVEN_DAYS = 7 * 24 * 60 * 60; // seconds
 export async function GET() {
   const session = await getSession();
   if (!session) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorised.", forceLogout: true },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Unauthorised.", forceLogout: true }, { status: 401 });
   }
 
-  // Admin force-logout guard
   if (session.role === "admin" && !(await adminExists(session.id))) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorised.", forceLogout: true },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Unauthorised.", forceLogout: true }, { status: 401 });
   }
 
+  const db    = session.role === "admin" ? dbAdmins   : dbStudents;
   const table = session.role === "admin" ? "admins"   : "students";
   const idCol = session.role === "admin" ? "admin_id" : "student_id";
 
@@ -46,10 +37,7 @@ export async function GET() {
   });
 
   if (!result.rows.length) {
-    return NextResponse.json(
-      { ok: false, error: "User not found.", forceLogout: true },
-      { status: 404 }
-    );
+    return NextResponse.json({ ok: false, error: "User not found.", forceLogout: true }, { status: 404 });
   }
 
   return NextResponse.json({ ok: true, data: result.rows[0] });
@@ -59,26 +47,17 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   const session = await getSession();
   if (!session) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorised.", forceLogout: true },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Unauthorised.", forceLogout: true }, { status: 401 });
   }
 
   if (session.role === "admin" && !(await adminExists(session.id))) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorised.", forceLogout: true },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Unauthorised.", forceLogout: true }, { status: 401 });
   }
 
-  const body = await req.json() as {
-    name?:     string;
-    userId?:   string;
-    password?: string;
-  };
+  const body = await req.json() as { name?: string; userId?: string; password?: string };
   const { name, userId, password } = body;
 
+  const db    = session.role === "admin" ? dbAdmins   : dbStudents;
   const table = session.role === "admin" ? "admins"   : "students";
   const idCol = session.role === "admin" ? "admin_id" : "student_id";
 
@@ -100,10 +79,7 @@ export async function PUT(req: NextRequest) {
       args: [userId, session.id],
     });
     if (clash.rows.length > 0) {
-      return NextResponse.json(
-        { ok: false, error: `ID ${userId} is already in use.` },
-        { status: 409 }
-      );
+      return NextResponse.json({ ok: false, error: `ID ${userId} is already in use.` }, { status: 409 });
     }
   }
 
@@ -111,20 +87,11 @@ export async function PUT(req: NextRequest) {
   const fields: string[]            = [];
   const args:   (string | number)[] = [];
 
-  if (name) {
-    fields.push("name = ?");
-    args.push(sanitize(name));
-  }
-  if (userId) {
-    fields.push(`${idCol} = ?`);
-    args.push(userId);
-  }
+  if (name) { fields.push("name = ?"); args.push(sanitize(name)); }
+  if (userId) { fields.push(`${idCol} = ?`); args.push(userId); }
   if (password) {
     if (password.length < 6) {
-      return NextResponse.json(
-        { ok: false, error: "Password must be at least 6 characters." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Password must be at least 6 characters." }, { status: 400 });
     }
     fields.push("password_hash = ?");
     args.push(await bcrypt.hash(password, 12));
@@ -137,11 +104,8 @@ export async function PUT(req: NextRequest) {
   args.push(session.id);
   await db.execute({ sql: `UPDATE ${table} SET ${fields.join(", ")} WHERE id = ?`, args });
 
-  // ── Re-issue JWT preserving the original rememberMe preference ────────────
-  // Read rememberMe from the existing JWT so a session-only login stays
-  // session-only and a persistent login stays persistent.
+  // ── Re-issue JWT preserving original rememberMe ───────────────────────────
   const rememberMe = await getRememberMe();
-
   const updatedSession = {
     ...session,
     name:   name   ?? session.name,
@@ -156,12 +120,8 @@ export async function PUT(req: NextRequest) {
     secure:   process.env.NODE_ENV === "production",
     sameSite: "lax",
     path:     "/",
-    // Only set maxAge if this was originally a persistent session
     ...(rememberMe ? { maxAge: SEVEN_DAYS } : {}),
   });
 
-  return NextResponse.json({
-    ok:   true,
-    data: { name: updatedSession.name, userId: updatedSession.userId },
-  });
+  return NextResponse.json({ ok: true, data: { name: updatedSession.name, userId: updatedSession.userId } });
 }

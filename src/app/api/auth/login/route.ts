@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt                         from "bcryptjs";
-import { db }                         from "@/lib/db";
+import { dbAdmins, dbStudents }       from "@/lib/db";
 import { setSessionCookie }           from "@/lib/auth";
 import type { SessionUser }           from "@/types";
 
@@ -32,11 +32,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Invalid ID format." }, { status: 400 });
     }
 
-    const table = isAdmin ? "admins" : "students";
+    // ── Select the correct Neon project for this role ─────────────────────────
+    const db    = isAdmin ? dbAdmins : dbStudents;
+    const idCol = isAdmin ? "admin_id" : "student_id";
 
     // ── Fetch user record ─────────────────────────────────────────────────────
     const result = await db.execute({
-      sql:  `SELECT id, name, ${isAdmin ? "admin_id" : "student_id"} AS user_id, password_hash FROM ${table} WHERE ${isAdmin ? "admin_id" : "student_id"} = ?`,
+      sql:  `SELECT id, name, ${idCol} AS user_id, password_hash FROM ${isAdmin ? "admins" : "students"} WHERE ${idCol} = ?`,
       args: [userId],
     });
 
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
     if (!user.password_hash) {
       const hash = await bcrypt.hash(password, 12);
       await db.execute({
-        sql:  `UPDATE ${table} SET password_hash = ? WHERE id = ?`,
+        sql:  `UPDATE ${isAdmin ? "admins" : "students"} SET password_hash = ? WHERE id = ?`,
         args: [hash, user.id],
       });
     } else {
